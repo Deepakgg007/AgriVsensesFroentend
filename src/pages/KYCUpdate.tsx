@@ -1,18 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Wrapper from '../layouts/Wrapper';
 import HeaderTwo from '../layouts/headers/HeaderTwo';
 import FooterOne from '../layouts/footers/FooterOne';
+import { kycAPI } from '../services/api';
 
 interface FarmerIdentity {
   fullName: string;
   gender: string;
-  dateOfBirth: string;
-  ageGroup: string;
 }
 
 interface ContactDetails {
-  mobileNumber: string;
   alternateMobile: string;
   whatsappNumber: string;
   email: string;
@@ -25,7 +23,6 @@ interface AddressDetails {
   district: string;
   taluk: string;
   village: string;
-  gramPanchayat: string;
   fullAddress: string;
   pinCode: string;
   homeGeoLocation: { lat: string; lng: string };
@@ -35,17 +32,14 @@ interface CropInfo {
   cropName: string;
   variety: string;
   season: string;
-  areaUnderCrop: number;
-  sowingDate: string;
   harvestWindow: string;
-  farmingPractice: string;
   majorProblems: string[];
+  isPrimary: boolean;
 }
 
 interface FarmPlot {
   plotId: string;
   ownershipType: string;
-  landDocumentRef: string;
   totalArea: number;
   areaUnit: string;
   irrigatedArea: number;
@@ -69,17 +63,17 @@ interface KYCData {
 const KYCUpdate: React.FC = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 5;
+  const totalSteps = 4;
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [existingKYC, setExistingKYC] = useState<any>(null);
 
   const [registrationData, setRegistrationData] = useState<KYCData>({
     identity: {
       fullName: '',
       gender: '',
-      dateOfBirth: '',
-      ageGroup: '',
     },
     contact: {
-      mobileNumber: '',
       alternateMobile: '',
       whatsappNumber: '',
       email: '',
@@ -91,7 +85,6 @@ const KYCUpdate: React.FC = () => {
       district: '',
       taluk: '',
       village: '',
-      gramPanchayat: '',
       fullAddress: '',
       pinCode: '',
       homeGeoLocation: { lat: '', lng: '' },
@@ -102,7 +95,6 @@ const KYCUpdate: React.FC = () => {
   const [currentPlot, setCurrentPlot] = useState<FarmPlot>({
     plotId: '',
     ownershipType: '',
-    landDocumentRef: '',
     totalArea: 0,
     areaUnit: 'acres',
     irrigatedArea: 0,
@@ -139,15 +131,60 @@ const KYCUpdate: React.FC = () => {
     cropName: '',
     variety: '',
     season: '',
-    areaUnderCrop: 0,
-    sowingDate: '',
     harvestWindow: '',
-    farmingPractice: '',
     majorProblems: [],
+    isPrimary: false,
   });
 
   // State for multiple crop selection
   const [selectedCropNames, setSelectedCropNames] = useState<string[]>([]);
+
+  // Load existing KYC data on component mount
+  useEffect(() => {
+    const loadKYCData = async () => {
+      try {
+        setLoading(true);
+        const response = await kycAPI.getMyKYC();
+        const kycData = response.data.kyc;
+
+        if (kycData) {
+          setExistingKYC(kycData);
+          // Populate form with existing data
+          if (kycData.identity) {
+            setRegistrationData((prev) => ({
+              ...prev,
+              identity: kycData.identity,
+            }));
+          }
+          if (kycData.contact) {
+            setRegistrationData((prev) => ({
+              ...prev,
+              contact: kycData.contact,
+            }));
+          }
+          if (kycData.address) {
+            setRegistrationData((prev) => ({
+              ...prev,
+              address: kycData.address,
+            }));
+          }
+          if (kycData.farmPlots && kycData.farmPlots.length > 0) {
+            setRegistrationData((prev) => ({
+              ...prev,
+              farmPlots: kycData.farmPlots,
+            }));
+          }
+        }
+      } catch (error: any) {
+        console.log('No existing KYC data found or error loading:', error);
+        // If no KYC found, continue with empty form
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadKYCData();
+  }, []);
 
   const handleIdentityChange = (field: keyof FarmerIdentity, value: string) => {
     setRegistrationData({
@@ -215,7 +252,7 @@ const KYCUpdate: React.FC = () => {
   };
 
   const addCropToPlot = () => {
-    if (selectedCropNames.length > 0 && currentCrop.season && currentCrop.areaUnderCrop > 0) {
+    if (selectedCropNames.length > 0 && currentCrop.season) {
       // Add each selected crop with the common details
       const newCrops = selectedCropNames.map(cropName => ({
         ...currentCrop,
@@ -232,15 +269,13 @@ const KYCUpdate: React.FC = () => {
         cropName: '',
         variety: '',
         season: '',
-        areaUnderCrop: 0,
-        sowingDate: '',
         harvestWindow: '',
-        farmingPractice: '',
         majorProblems: [],
+        isPrimary: false,
       });
       setSelectedCropNames([]);
     } else {
-      alert('Please select at least one crop, season, and area before adding');
+      alert('Please select at least one crop and season before adding');
     }
   };
 
@@ -284,6 +319,7 @@ const KYCUpdate: React.FC = () => {
         harvestWindow: '',
         farmingPractice: '',
         majorProblems: [],
+        isPrimary: false,
       });
       setSelectedCropNames([]);
     }
@@ -308,23 +344,63 @@ const KYCUpdate: React.FC = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('KYC Update Data:', registrationData);
-    alert('KYC updated successfully!');
-    navigate('/');
+    try {
+      setSubmitting(true);
+
+      // Submit or update KYC based on whether it exists
+      if (existingKYC && existingKYC._id) {
+        // Update existing KYC
+        await kycAPI.updateKYC(existingKYC._id, registrationData);
+        alert('KYC updated successfully!');
+      } else {
+        // Submit new KYC
+        await kycAPI.submitKYC(registrationData);
+        alert('KYC submitted successfully!');
+      }
+
+      navigate('/farmer-profile');
+    } catch (error: any) {
+      console.error('Error submitting KYC:', error);
+      alert(error.response?.data?.message || 'Failed to submit KYC. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getStepTitle = () => {
     switch (currentStep) {
-      case 1: return 'Farmer Identity';
-      case 2: return 'Contact Details';
-      case 3: return 'Address & Location';
-      case 4: return 'Farm & Land Details';
-      case 5: return 'Review & Submit';
+      case 1: return 'Personal & Contact Details';
+      case 2: return 'Address & Location';
+      case 3: return 'Farm & Land Details';
+      case 4: return 'Review & Submit';
       default: return '';
     }
   };
+
+  if (loading) {
+    return (
+      <Wrapper>
+        <HeaderTwo />
+        <section className="py-5" style={{ backgroundColor: '#f8f9fa', minHeight: '80vh' }}>
+          <div className="container">
+            <div className="row justify-content-center">
+              <div className="col-lg-10 col-xl-9">
+                <div className="text-center py-5">
+                  <div className="spinner-border text-success mb-3" role="status" style={{ width: '3rem', height: '3rem' }}>
+                    <span className="visually-hidden">Loading...</span>
+                  </div>
+                  <p className="text-muted">Loading KYC information...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <FooterOne />
+      </Wrapper>
+    );
+  }
 
   return (
     <Wrapper>
@@ -339,7 +415,7 @@ const KYCUpdate: React.FC = () => {
               <div className="card border-0 shadow-lg mb-4" style={{ borderRadius: '20px', overflow: 'hidden' }}>
                 <div className="card-body p-4">
                   <div className="d-flex justify-content-between align-items-center mb-4">
-                    {[1, 2, 3, 4, 5].map((step) => (
+                    {[1, 2, 3, 4].map((step) => (
                       <div key={step} className="text-center position-relative" style={{ flex: 1 }}>
                         <div
                           className={`rounded-circle mx-auto mb-2 d-flex align-items-center justify-content-center position-relative ${
@@ -360,7 +436,7 @@ const KYCUpdate: React.FC = () => {
                             <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{step}</span>
                           )}
                         </div>
-                        {step < 5 && (
+                        {step < 4 && (
                           <div
                             className="position-absolute"
                             style={{
@@ -375,7 +451,7 @@ const KYCUpdate: React.FC = () => {
                           ></div>
                         )}
                         <small className={`d-block mt-2 ${currentStep >= step ? 'text-primary fw-bold' : 'text-muted'}`} style={{ fontSize: '11px' }}>
-                          {step === 1 ? 'Identity' : step === 2 ? 'Contact' : step === 3 ? 'Address' : step === 4 ? 'Farm Details' : 'Review'}
+                          {step === 1 ? 'Personal' : step === 2 ? 'Address' : step === 3 ? 'Farm Details' : 'Review'}
                         </small>
                       </div>
                     ))}
@@ -403,10 +479,13 @@ const KYCUpdate: React.FC = () => {
                     <small className="text-muted">Step {currentStep} of {totalSteps}</small>
                   </div>
                   <form onSubmit={handleSubmit}>
-                    {/* Step 1: Farmer Identity */}
+                    {/* Step 1: Personal & Contact Details */}
                     {currentStep === 1 && (
                       <div>
-                        <div className="row g-3">
+                        <h6 className="text-success mb-3">
+                          <i className="fas fa-user me-2"></i>Personal Information
+                        </h6>
+                        <div className="row g-3 mb-4">
                           <div className="col-md-12">
                             <label className="form-label">Full Name (as per Aadhaar/Land Record) <span className="text-danger">*</span></label>
                             <input
@@ -433,52 +512,12 @@ const KYCUpdate: React.FC = () => {
                               ))}
                             </select>
                           </div>
-
-                          <div className="col-md-6">
-                            <label className="form-label">Date of Birth</label>
-                            <input
-                              type="date"
-                              className="form-control"
-                              value={registrationData.identity.dateOfBirth}
-                              onChange={(e) => handleIdentityChange('dateOfBirth', e.target.value)}
-                            />
-                          </div>
-
-                          <div className="col-md-6">
-                            <label className="form-label">Age Group <span className="text-danger">*</span></label>
-                            <select
-                              className="form-select"
-                              value={registrationData.identity.ageGroup}
-                              onChange={(e) => handleIdentityChange('ageGroup', e.target.value)}
-                              required
-                            >
-                              <option value="">Select age group</option>
-                              {ageGroups.map((age) => (
-                                <option key={age} value={age}>{age} years</option>
-                              ))}
-                            </select>
-                          </div>
                         </div>
-                      </div>
-                    )}
 
-                    {/* Step 2: Contact Details */}
-                    {currentStep === 2 && (
-                      <div>
+                        <h6 className="text-success mb-3">
+                          <i className="fas fa-phone me-2"></i>Contact Information
+                        </h6>
                         <div className="row g-3">
-                          <div className="col-md-6">
-                            <label className="form-label">Mobile Number (Primary) <span className="text-danger">*</span></label>
-                            <input
-                              type="tel"
-                              className="form-control"
-                              value={registrationData.contact.mobileNumber}
-                              onChange={(e) => handleContactChange('mobileNumber', e.target.value)}
-                              placeholder="+91 XXXXX-XXXXX"
-                              required
-                            />
-                            <small className="text-muted">Used for login and OTP</small>
-                          </div>
-
                           <div className="col-md-6">
                             <label className="form-label">Alternate Mobile (Family Member)</label>
                             <input
@@ -553,8 +592,8 @@ const KYCUpdate: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Step 3: Address & Location */}
-                    {currentStep === 3 && (
+                    {/* Step 2: Address & Location */}
+                    {currentStep === 2 && (
                       <div>
                         <div className="row g-3">
                           <div className="col-md-6">
@@ -609,17 +648,6 @@ const KYCUpdate: React.FC = () => {
                           </div>
 
                           <div className="col-md-6">
-                            <label className="form-label">Gram Panchayat</label>
-                            <input
-                              type="text"
-                              className="form-control"
-                              value={registrationData.address.gramPanchayat}
-                              onChange={(e) => handleAddressChange('gramPanchayat', e.target.value)}
-                              placeholder="Enter gram panchayat"
-                            />
-                          </div>
-
-                          <div className="col-md-6">
                             <label className="form-label">PIN Code <span className="text-danger">*</span></label>
                             <input
                               type="text"
@@ -647,8 +675,8 @@ const KYCUpdate: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Step 4: Farm & Land Details */}
-                    {currentStep === 4 && (
+                    {/* Step 3: Farm & Land Details */}
+                    {currentStep === 3 && (
                       <div>
                         <div className="alert alert-info mb-4">
                           <i className="fas fa-info-circle me-2"></i>
@@ -680,11 +708,10 @@ const KYCUpdate: React.FC = () => {
                                           </small>
                                           <div className="mt-1">
                                             {plot.crops.map((crop, cropIdx) => (
-                                              <span key={cropIdx} className="badge bg-success-subtle text-success me-1 mb-1">
+                                              <span key={cropIdx} className={`badge ${crop.isPrimary ? 'bg-warning text-dark' : 'bg-success-subtle text-success'} me-1 mb-1`}>
+                                                {crop.isPrimary && <i className="fas fa-star me-1"></i>}
                                                 {crop.cropName}
                                                 {crop.variety && ` (${crop.variety})`}
-                                                {' • '}
-                                                {crop.areaUnderCrop} {plot.areaUnit}
                                               </span>
                                             ))}
                                           </div>
@@ -721,17 +748,6 @@ const KYCUpdate: React.FC = () => {
                                   <option key={type} value={type}>{type}</option>
                                 ))}
                               </select>
-                            </div>
-
-                            <div className="col-md-6">
-                              <label className="form-label">Land Document Reference</label>
-                              <input
-                                type="text"
-                                className="form-control"
-                                value={currentPlot.landDocumentRef}
-                                onChange={(e) => handlePlotChange('landDocumentRef', e.target.value)}
-                                placeholder="Survey No. / Khasra / Khata"
-                              />
                             </div>
 
                             <div className="col-md-4">
@@ -896,9 +912,14 @@ const KYCUpdate: React.FC = () => {
                                           <div>
                                             <strong>{crop.cropName}</strong>
                                             {crop.variety && <span className="text-muted"> ({crop.variety})</span>}
+                                            {crop.isPrimary && (
+                                              <span className="badge bg-warning text-dark ms-2">
+                                                <i className="fas fa-star me-1"></i>Primary
+                                              </span>
+                                            )}
                                             <br />
                                             <small className="text-muted">
-                                              {crop.season} • {crop.areaUnderCrop} {currentPlot.areaUnit} • {crop.farmingPractice}
+                                              {crop.season}
                                             </small>
                                           </div>
                                           <button
@@ -978,29 +999,7 @@ const KYCUpdate: React.FC = () => {
                                     </select>
                                   </div>
 
-                                  <div className="col-md-4">
-                                    <label className="form-label small">Area Under Crop <span className="text-danger">*</span></label>
-                                    <input
-                                      type="number"
-                                      className="form-control form-control-sm"
-                                      value={currentCrop.areaUnderCrop}
-                                      onChange={(e) => handleCropChange('areaUnderCrop', parseFloat(e.target.value))}
-                                      step="0.01"
-                                      placeholder={`In ${currentPlot.areaUnit}`}
-                                    />
-                                  </div>
-
-                                  <div className="col-md-4">
-                                    <label className="form-label small">Sowing/Transplanting Date</label>
-                                    <input
-                                      type="date"
-                                      className="form-control form-control-sm"
-                                      value={currentCrop.sowingDate}
-                                      onChange={(e) => handleCropChange('sowingDate', e.target.value)}
-                                    />
-                                  </div>
-
-                                  <div className="col-md-4">
+                                  <div className="col-md-6">
                                     <label className="form-label small">Typical Harvest Window</label>
                                     <input
                                       type="text"
@@ -1011,18 +1010,23 @@ const KYCUpdate: React.FC = () => {
                                     />
                                   </div>
 
-                                  <div className="col-md-4">
-                                    <label className="form-label small">Farming Practice</label>
-                                    <select
-                                      className="form-select form-select-sm"
-                                      value={currentCrop.farmingPractice}
-                                      onChange={(e) => handleCropChange('farmingPractice', e.target.value)}
-                                    >
-                                      <option value="">Select practice</option>
-                                      {farmingPracticeOptions.map((practice) => (
-                                        <option key={practice} value={practice}>{practice}</option>
-                                      ))}
-                                    </select>
+                                  <div className="col-md-12">
+                                    <div className="form-check form-switch">
+                                      <input
+                                        className="form-check-input"
+                                        type="checkbox"
+                                        id="isPrimarySwitch"
+                                        checked={currentCrop.isPrimary}
+                                        onChange={(e) => handleCropChange('isPrimary', e.target.checked)}
+                                      />
+                                      <label className="form-check-label small" htmlFor="isPrimarySwitch">
+                                        <i className="fas fa-star text-warning me-1"></i>
+                                        <strong>Mark as Primary Crop</strong>
+                                        <span className="text-muted d-block" style={{ fontSize: '11px' }}>
+                                          Primary crop is the main crop grown for commercial purposes
+                                        </span>
+                                      </label>
+                                    </div>
                                   </div>
 
                                   <div className="col-12">
@@ -1106,8 +1110,8 @@ const KYCUpdate: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Step 5: Review & Submit */}
-                    {currentStep === 5 && (
+                    {/* Step 4: Review & Submit */}
+                    {currentStep === 4 && (
                       <div>
                         <div className="alert alert-success mb-4">
                           <i className="fas fa-check-circle me-2"></i>
@@ -1125,13 +1129,9 @@ const KYCUpdate: React.FC = () => {
                                 <small className="text-muted">Full Name:</small>
                                 <div><strong>{registrationData.identity.fullName}</strong></div>
                               </div>
-                              <div className="col-md-3 mb-2">
+                              <div className="col-md-6 mb-2">
                                 <small className="text-muted">Gender:</small>
                                 <div>{registrationData.identity.gender}</div>
-                              </div>
-                              <div className="col-md-3 mb-2">
-                                <small className="text-muted">Age Group:</small>
-                                <div>{registrationData.identity.ageGroup}</div>
                               </div>
                             </div>
                           </div>
@@ -1144,10 +1144,6 @@ const KYCUpdate: React.FC = () => {
                           </div>
                           <div className="card-body">
                             <div className="row">
-                              <div className="col-md-6 mb-2">
-                                <small className="text-muted">Mobile Number:</small>
-                                <div><strong>{registrationData.contact.mobileNumber}</strong></div>
-                              </div>
                               <div className="col-md-6 mb-2">
                                 <small className="text-muted">Preferred Language:</small>
                                 <div>{registrationData.contact.preferredLanguage}</div>
@@ -1222,22 +1218,19 @@ const KYCUpdate: React.FC = () => {
                                       {plot.crops.map((crop, cropIndex) => (
                                         <div key={cropIndex} className="bg-light p-2 rounded mb-2">
                                           <div className="row small">
-                                            <div className="col-md-3">
+                                            <div className="col-md-4">
                                               <strong>{crop.cropName}</strong>
                                               {crop.variety && <span className="text-muted"> ({crop.variety})</span>}
+                                              {crop.isPrimary && (
+                                                <span className="badge bg-warning text-dark ms-1">
+                                                  <i className="fas fa-star"></i>
+                                                </span>
+                                              )}
                                             </div>
                                             <div className="col-md-2">
                                               <span className="badge bg-success-subtle text-success">{crop.season}</span>
                                             </div>
-                                            <div className="col-md-2">
-                                              {crop.areaUnderCrop} {plot.areaUnit}
-                                            </div>
-                                            <div className="col-md-2">
-                                              {crop.farmingPractice && (
-                                                <span className="badge bg-info-subtle text-info">{crop.farmingPractice}</span>
-                                              )}
-                                            </div>
-                                            <div className="col-md-3">
+                                            <div className="col-md-6">
                                               {crop.majorProblems.length > 0 && (
                                                 <span className="text-muted">
                                                   Problems: {crop.majorProblems.slice(0, 2).join(', ')}
@@ -1299,6 +1292,7 @@ const KYCUpdate: React.FC = () => {
                         <button
                           type="submit"
                           className="btn btn-lg px-5 text-white"
+                          disabled={submitting}
                           style={{
                             background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
                             border: 'none',
@@ -1308,8 +1302,17 @@ const KYCUpdate: React.FC = () => {
                             transition: 'all 0.3s ease'
                           }}
                         >
-                          <i className="fas fa-check-circle me-2"></i>
-                          Update KYC
+                          {submitting ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm me-2"></span>
+                              Submitting...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-check-circle me-2"></i>
+                              {existingKYC ? 'Update KYC' : 'Submit KYC'}
+                            </>
+                          )}
                         </button>
                       )}
                     </div>

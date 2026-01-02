@@ -98,7 +98,7 @@ export const adminAPI = {
   // Master Data
   getMasterData: (params?: { type?: string }) =>
     api.get('/admin/master-data', { params }),
-  createMasterData: (data: { type: string; name: string; code?: string }) =>
+  createMasterData: (data: { type: string; name: string }) =>
     api.post('/admin/master-data', data),
   updateMasterData: (id: string, data: { name?: string; isActive?: boolean }) =>
     api.put(`/admin/master-data/${id}`, data),

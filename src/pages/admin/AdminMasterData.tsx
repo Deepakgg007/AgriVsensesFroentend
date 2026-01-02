@@ -5,7 +5,6 @@ interface MasterDataItem {
   _id: string;
   type: string;
   name: string;
-  code?: string;
   isActive: boolean;
   createdAt: string;
 }
@@ -16,8 +15,9 @@ const AdminMasterData: React.FC = () => {
   const [selectedType, setSelectedType] = useState('state');
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MasterDataItem | null>(null);
-  const [formData, setFormData] = useState({ type: 'state', name: '', code: '' });
+  const [formData, setFormData] = useState({ type: 'state', name: '' });
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const dataTypes = [
     { value: 'state', label: 'States', icon: 'fas fa-map-marker-alt' },
@@ -28,6 +28,10 @@ const AdminMasterData: React.FC = () => {
     { value: 'season', label: 'Seasons', icon: 'fas fa-sun' },
     { value: 'problem', label: 'Problems', icon: 'fas fa-bug' },
     { value: 'language', label: 'Languages', icon: 'fas fa-language' },
+    { value: 'ownership_type', label: 'Ownership Types', icon: 'fas fa-file-contract' },
+    { value: 'communication_channel', label: 'Communication Channels', icon: 'fas fa-comments' },
+    { value: 'gender', label: 'Genders', icon: 'fas fa-venus-mars' },
+    { value: 'crop_category', label: 'Crop Categories', icon: 'fas fa-seedling' },
   ];
 
   useEffect(() => {
@@ -39,8 +43,9 @@ const AdminMasterData: React.FC = () => {
       setLoading(true);
       const response = await adminAPI.getMasterData({ type: selectedType });
       setMasterData(response.data.masterData || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching master data:', error);
+      alert(error.response?.data?.message || 'Failed to fetch master data');
     } finally {
       setLoading(false);
     }
@@ -48,35 +53,53 @@ const AdminMasterData: React.FC = () => {
 
   const openAddModal = () => {
     setEditingItem(null);
-    setFormData({ type: selectedType, name: '', code: '' });
+    setFormData({ type: selectedType, name: '' });
+    setErrorMessage('');
     setShowModal(true);
   };
 
   const openEditModal = (item: MasterDataItem) => {
     setEditingItem(item);
-    setFormData({ type: item.type, name: item.name, code: item.code || '' });
+    setFormData({ type: item.type, name: item.name });
+    setErrorMessage('');
     setShowModal(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
+
+    // Validation
+    if (!formData.name.trim()) {
+      setErrorMessage('Name is required');
+      return;
+    }
+
     try {
       setSaving(true);
       if (editingItem) {
-        await adminAPI.updateMasterData(editingItem._id, {
+        console.log('Updating master data:', editingItem._id, { name: formData.name });
+        const response = await adminAPI.updateMasterData(editingItem._id, {
           name: formData.name,
         });
+        console.log('Update response:', response);
+        alert('Master data updated successfully!');
       } else {
-        await adminAPI.createMasterData({
+        const payload = {
           type: formData.type,
           name: formData.name,
-          code: formData.code || undefined,
-        });
+        };
+        console.log('Creating master data:', payload);
+        const response = await adminAPI.createMasterData(payload);
+        console.log('Create response:', response);
+        alert('Master data added successfully!');
       }
       setShowModal(false);
       fetchMasterData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving master data:', error);
+      console.error('Error details:', error.response?.data);
+      setErrorMessage(error.response?.data?.message || error.message || 'Failed to save master data. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -86,9 +109,11 @@ const AdminMasterData: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this item?')) {
       try {
         await adminAPI.deleteMasterData(id);
+        alert('Master data deleted successfully!');
         fetchMasterData();
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error deleting master data:', error);
+        alert(error.response?.data?.message || 'Failed to delete master data');
       }
     }
   };
@@ -97,8 +122,9 @@ const AdminMasterData: React.FC = () => {
     try {
       await adminAPI.updateMasterData(item._id, { isActive: !item.isActive });
       fetchMasterData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating status:', error);
+      alert(error.response?.data?.message || 'Failed to update status');
     }
   };
 
@@ -168,7 +194,6 @@ const AdminMasterData: React.FC = () => {
                     <thead className="bg-light">
                       <tr>
                         <th className="border-0 px-4 py-3">Name</th>
-                        <th className="border-0 py-3">Code</th>
                         <th className="border-0 py-3">Status</th>
                         <th className="border-0 py-3">Created</th>
                         <th className="border-0 py-3 text-center">Actions</th>
@@ -180,13 +205,6 @@ const AdminMasterData: React.FC = () => {
                           <tr key={item._id}>
                             <td className="px-4 py-3">
                               <span className="fw-semibold">{item.name}</span>
-                            </td>
-                            <td className="py-3">
-                              {item.code ? (
-                                <code className="bg-light px-2 py-1 rounded">{item.code}</code>
-                              ) : (
-                                <span className="text-muted">-</span>
-                              )}
                             </td>
                             <td className="py-3">
                               <div className="form-check form-switch">
@@ -220,7 +238,7 @@ const AdminMasterData: React.FC = () => {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={5} className="text-center py-5 text-muted">
+                          <td colSpan={4} className="text-center py-5 text-muted">
                             <i className="fas fa-database fa-3x mb-3 d-block"></i>
                             No {getCurrentTypeLabel().toLowerCase()} found
                           </td>
@@ -252,6 +270,12 @@ const AdminMasterData: React.FC = () => {
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
+                  {errorMessage && (
+                    <div className="alert alert-danger d-flex align-items-start" role="alert">
+                      <i className="fas fa-exclamation-triangle me-2 mt-1"></i>
+                      <div>{errorMessage}</div>
+                    </div>
+                  )}
                   {!editingItem && (
                     <div className="mb-3">
                       <label className="form-label">Type</label>
@@ -270,7 +294,7 @@ const AdminMasterData: React.FC = () => {
                     </div>
                   )}
                   <div className="mb-3">
-                    <label className="form-label">Name</label>
+                    <label className="form-label">Name <span className="text-danger">*</span></label>
                     <input
                       type="text"
                       className="form-control"
@@ -278,20 +302,10 @@ const AdminMasterData: React.FC = () => {
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       required
                       placeholder="Enter name"
+                      autoFocus
                     />
+                    <small className="text-muted">Enter the display name for this item</small>
                   </div>
-                  {!editingItem && (
-                    <div className="mb-3">
-                      <label className="form-label">Code (Optional)</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={formData.code}
-                        onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                        placeholder="Enter code (e.g., KA for Karnataka)"
-                      />
-                    </div>
-                  )}
                 </div>
                 <div className="modal-footer border-0">
                   <button
